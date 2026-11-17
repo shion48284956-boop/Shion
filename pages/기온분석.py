@@ -1,105 +1,67 @@
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
+from pathlib import Path
 
-# 페이지 설정
-st.set_page_config(
-    page_title="월별 기온분석",
-    page_icon="🌡️",
-    layout="wide"
-)
-
-st.title("🌡️ 월별 기온분석")
-st.write("월을 선택하여 연도별 최고기온과 최저기온을 비교해 보세요.")
-
-# CSV 파일 불러오기 (CP949 한글 인코딩)
+# CSV 파일 자동 탐색 및 불러오기
 @st.cache_data
 def load_data():
-    df = pd.read_csv("temperature (2).csv", encoding="cp949")
 
-    # 날짜 데이터 변환
+    # 현재 파일(pages 폴더)의 상위 폴더
+    base_dir = Path(__file__).resolve().parent.parent
+
+    # CSV 파일 찾기
+    csv_files = list(base_dir.glob("temperature*.csv"))
+
+    if not csv_files:
+        raise FileNotFoundError(
+            f"CSV 파일을 찾을 수 없습니다. 검색 위치: {base_dir}"
+        )
+
+    # 파일 이름이 달라도 자동으로 읽기
+    required_columns = ["일시", "평균기온(℃)"]
+    df = None
+
+    for file_path in csv_files:
+        for encoding in ["cp949", "utf-8-sig", "utf-8"]:
+            try:
+                temp = pd.read_csv(file_path, encoding=encoding)
+
+                if all(col in temp.columns for col in required_columns):
+                    df = temp
+                    break
+
+            except (UnicodeDecodeError, pd.errors.ParserError):
+                continue
+
+        if df is not None:
+            break
+
+    if df is None:
+        raise ValueError(
+            "CSV 파일에서 일시 또는 평균기온(℃) 열을 찾지 못했습니다."
+        )
+
+    # 날짜 및 기온 데이터 정리
     df["날짜"] = pd.to_datetime(
         df["일시"],
         format="%b-%y",
         errors="coerce"
     )
 
-    # 연도와 월 추출
+    df["평균기온(℃)"] = pd.to_numeric(
+        df["평균기온(℃)"],
+        errors="coerce"
+    )
+
+    df = df.dropna(
+        subset=["날짜", "평균기온(℃)"]
+    )
+
     df["연도"] = df["날짜"].dt.year
     df["월"] = df["날짜"].dt.month
 
-    return df.dropna(subset=["날짜"])
+    return df.sort_values("날짜")
+
 
 df = load_data()
-
-# 월 선택
-month_names = {
-    1: "1월", 2: "2월", 3: "3월",
-    4: "4월", 5: "5월", 6: "6월",
-    7: "7월", 8: "8월", 9: "9월",
-    10: "10월", 11: "11월", 12: "12월"
-}
-
-selected_month = st.selectbox(
-    "📅 분석할 월을 선택하세요",
-    options=list(month_names.keys()),
-    format_func=lambda x: month_names[x]
-)
-
-# 선택한 월의 데이터 추출
-filtered_df = df[df["월"] == selected_month].copy()
-filtered_df = filtered_df.sort_values("연도")
-
-if not filtered_df.empty:
-
-    # 꺾은선 그래프 생성
-    fig = go.Figure()
-
-    # 최고기온
-    fig.add_trace(go.Scatter(
-        x=filtered_df["연도"],
-        y=filtered_df["최고기온(℃)"],
-        mode="lines+markers",
-        name="최고기온",
-        line=dict(color="hotpink", width=3),
-        marker=dict(size=8)
-    ))
-
-    # 최저기온
-    fig.add_trace(go.Scatter(
-        x=filtered_df["연도"],
-        y=filtered_df["최저기온(℃)"],
-        mode="lines+markers",
-        name="최저기온",
-        line=dict(color="skyblue", width=3),
-        marker=dict(size=8)
-    ))
-
-    # 그래프 제목 및 축 설정
-    fig.update_layout(
-        title="월별 기온분석",
-        xaxis_title="연도",
-        yaxis_title="온도 (℃)",
-        legend_title="기온 구분",
-        template="plotly_white",
-        hovermode="x unified",
-        height=550
-    )
-
-    # 그래프 출력
-    st.plotly_chart(fig, use_container_width=True)
-
-    # 데이터 표 출력
-    st.subheader("📊 기온 데이터")
-
-    result = filtered_df[
-        ["연도", "최고기온(℃)", "최저기온(℃)"]
-    ].copy()
-
-    result.columns = ["연도", "최고기온(℃)", "최저기온(℃)"]
-
-    st.dataframe(result, use_container_width=True)
-
-else:
-    st.warning("선택한 월의 데이터가 없습니다.")
