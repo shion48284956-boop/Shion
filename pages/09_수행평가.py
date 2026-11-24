@@ -306,3 +306,8 @@ st.caption(
 st.caption(
     "정확한 자세와 안전을 우선으로 운동하세요."
 )
+st.subheader("📊 부위별 운동 개수")
+
+chart_data = df["운동부위"].value_counts()
+
+st.bar_chart(chart_data)
